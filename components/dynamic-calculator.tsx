@@ -1,3 +1,5 @@
+"use client"
+
 import React, { useState, useEffect } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -75,12 +77,6 @@ export default function DynamicCalculator() {
         aggressive: { front_end: 0.4, back_end: 0.45, net_worth: 0.65 },
     }
 
-    // Calculate everything when variables change
-    useEffect(() => {
-        calculateResults()
-        generateScenarios()
-    }, [variables, parameters])
-
     const calculateResults = () => {
         const gmi = (variables.n_inc.value + variables.s_inc.value) / 12
         const loan = variables.h_price.value * (1 - variables.dp_pct.value)
@@ -105,31 +101,35 @@ export default function DynamicCalculator() {
         const equity_pct_of_nw = net_worth > 0 ? down_pmt / net_worth : 0
         const layoff_months = variables.cash_avail.value / piti
 
-        // Update calculated variables if they're not locked
-        if (!variables.piti.locked) {
+        // Update results first
+        setResults({
+            gmi, loan, down_pmt, pi, tax, ins, pmi,
+            total_cash_needed, cash_remaining, front_end, back_end,
+            net_worth, equity_pct_of_nw, layoff_months
+        })
+
+        // Update calculated variables if they're not locked (but only if values actually changed)
+        if (!variables.piti.locked && Math.abs(variables.piti.value - piti) > 0.01) {
             setVariables(prev => ({
                 ...prev,
                 piti: { ...prev.piti, value: piti }
             }))
         }
 
-        if (!variables.cash_remaining.locked) {
+        if (!variables.cash_remaining.locked && Math.abs(variables.cash_remaining.value - cash_remaining) > 0.01) {
             setVariables(prev => ({
                 ...prev,
                 cash_remaining: { ...prev.cash_remaining, value: cash_remaining }
             }))
         }
-
-        setResults({
-            gmi, loan, down_pmt, pi, tax, ins, pmi,
-            total_cash_needed, cash_remaining, front_end, back_end,
-            net_worth, equity_pct_of_nw, layoff_months
-        })
     }
 
     const generateScenarios = () => {
         const lockedVar = Object.keys(variables).find(key => variables[key].locked)
-        if (!lockedVar) return
+        if (!lockedVar) {
+            setScenarios([])
+            return
+        }
 
         // Generate scenarios based on what's locked
         if (lockedVar === 'h_price') {
@@ -183,6 +183,12 @@ export default function DynamicCalculator() {
             setScenarios([])
         }
     }
+
+    // Calculate everything when variables change
+    useEffect(() => {
+        calculateResults()
+        generateScenarios()
+    }, [variables, parameters])
 
     const calculateMaxPrice = (scenario) => {
         const gmi = (variables.n_inc.value + variables.s_inc.value) / 12
