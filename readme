@@ -1,0 +1,296 @@
+Below is a “formula palette” you can lift straight into a spreadsheet, a Jupyter notebook, or even an n-8n calculator node. I’ve grouped everything by what you plug in (inputs), what the model spits out (derived values), and the guard-rails lenders (and you) care about (tests & thresholds).
+Use or ignore pieces as you like—nothing here forces you to commit.
+
+⸻
+
+1  Inputs (everything you or the market choose)
+
+Symbol	What it is	Typical starting value
+N_inc	Nicole’s annual gross income	$170 000
+S_inc	Scott’s annual gross income	(your call)
+OMD	All other required monthly debt payments (loans, CC minimums, student loans)	$0–$???
+H_price	Target home purchase price	$…
+DP_pct	Down-payment % of purchase price (decimal)	0.20 for 20 %
+i_yr	Quoted mortgage rate, annual (decimal)	0.0675
+T_yrs	Loan term in years	30
+PT_rate	Property-tax rate as % of price (decimal)	0.0125
+HI_rate	Home-ins. + HOA % of price (decimal)	0.004
+PMI_rate	PMI % of loan (only if DP_pct < 0.20)	0.008–0.01
+CC_pct	Closing-cost % of price (decimal)	0.03–0.05
+Res_mo	Months of reserves lender requires (2–12)	6
+Cash_avail	Liquid cash you’re willing to deploy	$…
+
+
+⸻
+
+2  Derived monthly values
+
+GMI  = (N_inc + S_inc) / 12                    # gross monthly income
+Loan = H_price * (1 - DP_pct)
+r    = i_yr / 12                               # monthly rate
+n    = T_yrs * 12                              # total number of payments
+
+# Core mortgage payment (principal & interest)
+PI   = Loan * r * (1 + r)**n / ((1 + r)**n - 1)
+
+# Monthly add-ons
+Tax  = H_price * PT_rate / 12
+Ins  = H_price * HI_rate / 12
+PMI  = (Loan * PMI_rate / 12)  if DP_pct < 0.20  else 0
+
+PITI = PI + Tax + Ins + PMI                    # full housing payment
+
+
+⸻
+
+3  Debt-to-Income ratios
+
+Front_end = PITI / GMI                          # “housing ratio”
+Back_end  = (PITI + OMD) / GMI                  # “total DTI”
+
+Common comfort bands (edit to taste)
+
+Band	Front_end max	Back_end max	Comment
+Conservative	0.28	0.36	Classic underwriting
+Moderate	0.33	0.43	Many jumbo, FHA, VA
+Aggressive	0.40	0.45	Niche / asset-based
+
+Absolute Fannie/Freddie ceiling: Back_end 0.43.
+Non-QM lenders sometimes stretch to 0.50-0.55, but pricing jumps.
+
+⸻
+
+4  Turn a ratio into a max house price
+	1.	Pick a ratio target →
+PITI_max = TargetRatio * GMI – OMD  (use Front_end if you want a purist view).
+	2.	Find Loan:
+Rearrange the payment formula:
+
+PaymentFactor = r * (1 + r)**n / ((1 + r)**n - 1)
+Loan_max      = (PITI_max - Tax - Ins - PMI) / PaymentFactor
+
+(Tax, Ins, PMI depend on H_price, so iterate twice or start with an estimated rate such as Tax = 0.0125 * H_price / 12 and refine.)
+	3.	Back into price:
+H_price_max = Loan_max / (1 - DP_pct)
+
+⸻
+
+5  Cash-on-hand test
+
+Down_pmt  = H_price * DP_pct
+Clos_cost = H_price * CC_pct
+Reserves  = PITI * Res_mo
+Total_cash_needed = Down_pmt + Clos_cost + Reserves
+
+Cash_pass = Total_cash_needed ≤ Cash_avail      # Boolean TRUE/FALSE
+
+
+⸻
+
+6  Net-worth sanity check (totally optional)
+
+NetWorth   = TotalAssets - TotalLiabilities
+HomeEquity = Down_pmt                           # ignoring early principal pay-down
+Equity_pct_of_NW = HomeEquity / NetWorth
+
+# Heuristics
+Conservative ≤ 0.30
+Moderate     ≤ 0.50
+Aggressive   ≤ 0.65
+
+
+⸻
+
+7  Stress test for a lay-off
+
+Layoff_cash_months = Cash_avail / PITI
+
+Layoff_pass = Layoff_cash_months ≥ 12           # survive a year on cash
+
+
+⸻
+
+8  Rent-vs-buy (5-year quick model)
+
+# Inputs
+Rent0      = current rent per month
+Rent_inf   = assumed annual rent inflation (decimal)
+Inv_ret    = assumed annual return on invested down-payment
+App_rate   = assumed annual home appreciation
+Years      = horizon (e.g., 5)
+
+# Formulas
+FV_down = Down_pmt * (1 + Inv_ret)**Years
+
+Total_rent = SUM_{t=0}^{Years-1} Rent0 * (1 + Rent_inf)^t * 12
+
+Home_val_future = H_price * (1 + App_rate)**Years
+
+Loan_bal_future = Loan * (1 + r)**n - PI * (((1 + r)**n - (1 + r)**(Years*12)) / r)
+
+Equity_future = Home_val_future - Loan_bal_future
+
+Net_buy_gain = Equity_future - (FV_down)       # ignores selling costs & tax
+
+
+⸻
+
+Putting it to work
+	1.	Plug in all the blue-box inputs.
+	2.	Compute section 2 values.
+	3.	Run section 3 to see if the deal hits your chosen DTI band.
+	4.	Check section 5 cash.
+	5.	(Optional) sanity-check section 6 Net-worth share and section 7 lay-off buffer.
+	6.	Use section 8 if you want a rent-vs-buy dashboard.
+
+Now you have a single list of equations you can drop into Excel, Sheets, Notion, Python, or an Airtable formula field. Tweak any input and watch the affordability lights turn green—or red—instantly.
+
+
+
+Potential Improvements:
+Below is a “formula palette” you can lift straight into a spreadsheet, a Jupyter notebook, or even an n-8n calculator node. I’ve grouped everything by what you plug in (inputs), what the model spits out (derived values), and the guard-rails lenders (and you) care about (tests & thresholds).
+Use or ignore pieces as you like—nothing here forces you to commit.
+
+⸻
+
+1  Inputs (everything you or the market choose)
+
+Symbol	What it is	Typical starting value
+N_inc	Nicole’s annual gross income	$170 000
+S_inc	Scott’s annual gross income	(your call)
+OMD	All other required monthly debt payments (loans, CC minimums, student loans)	$0–$???
+H_price	Target home purchase price	$…
+DP_pct	Down-payment % of purchase price (decimal)	0.20 for 20 %
+i_yr	Quoted mortgage rate, annual (decimal)	0.0675
+T_yrs	Loan term in years	30
+PT_rate	Property-tax rate as % of price (decimal)	0.0125
+HI_rate	Home-ins. + HOA % of price (decimal)	0.004
+PMI_rate	PMI % of loan (only if DP_pct < 0.20)	0.008–0.01
+CC_pct	Closing-cost % of price (decimal)	0.03–0.05
+Res_mo	Months of reserves lender requires (2–12)	6
+Cash_avail	Liquid cash you’re willing to deploy	$…
+
+
+⸻
+
+2  Derived monthly values
+
+GMI  = (N_inc + S_inc) / 12                    # gross monthly income
+Loan = H_price * (1 - DP_pct)
+r    = i_yr / 12                               # monthly rate
+n    = T_yrs * 12                              # total number of payments
+
+# Core mortgage payment (principal & interest)
+PI   = Loan * r * (1 + r)**n / ((1 + r)**n - 1)
+
+# Monthly add-ons
+Tax  = H_price * PT_rate / 12
+Ins  = H_price * HI_rate / 12
+PMI  = (Loan * PMI_rate / 12)  if DP_pct < 0.20  else 0
+
+PITI = PI + Tax + Ins + PMI                    # full housing payment
+
+
+⸻
+
+3  Debt-to-Income ratios
+
+Front_end = PITI / GMI                          # “housing ratio”
+Back_end  = (PITI + OMD) / GMI                  # “total DTI”
+
+Common comfort bands (edit to taste)
+
+Band	Front_end max	Back_end max	Comment
+Conservative	0.28	0.36	Classic underwriting
+Moderate	0.33	0.43	Many jumbo, FHA, VA
+Aggressive	0.40	0.45	Niche / asset-based
+
+Absolute Fannie/Freddie ceiling: Back_end 0.43.
+Non-QM lenders sometimes stretch to 0.50-0.55, but pricing jumps.
+
+⸻
+
+4  Turn a ratio into a max house price
+	1.	Pick a ratio target →
+PITI_max = TargetRatio * GMI – OMD  (use Front_end if you want a purist view).
+	2.	Find Loan:
+Rearrange the payment formula:
+
+PaymentFactor = r * (1 + r)**n / ((1 + r)**n - 1)
+Loan_max      = (PITI_max - Tax - Ins - PMI) / PaymentFactor
+
+(Tax, Ins, PMI depend on H_price, so iterate twice or start with an estimated rate such as Tax = 0.0125 * H_price / 12 and refine.)
+	3.	Back into price:
+H_price_max = Loan_max / (1 - DP_pct)
+
+⸻
+
+5  Cash-on-hand test
+
+Down_pmt  = H_price * DP_pct
+Clos_cost = H_price * CC_pct
+Reserves  = PITI * Res_mo
+Total_cash_needed = Down_pmt + Clos_cost + Reserves
+
+Cash_pass = Total_cash_needed ≤ Cash_avail      # Boolean TRUE/FALSE
+
+
+⸻
+
+6  Net-worth sanity check (totally optional)
+
+NetWorth   = TotalAssets - TotalLiabilities
+HomeEquity = Down_pmt                           # ignoring early principal pay-down
+Equity_pct_of_NW = HomeEquity / NetWorth
+
+# Heuristics
+Conservative ≤ 0.30
+Moderate     ≤ 0.50
+Aggressive   ≤ 0.65
+
+
+⸻
+
+7  Stress test for a lay-off
+
+Layoff_cash_months = Cash_avail / PITI
+
+Layoff_pass = Layoff_cash_months ≥ 12           # survive a year on cash
+
+
+⸻
+
+8  Rent-vs-buy (5-year quick model)
+
+# Inputs
+Rent0      = current rent per month
+Rent_inf   = assumed annual rent inflation (decimal)
+Inv_ret    = assumed annual return on invested down-payment
+App_rate   = assumed annual home appreciation
+Years      = horizon (e.g., 5)
+
+# Formulas
+FV_down = Down_pmt * (1 + Inv_ret)**Years
+
+Total_rent = SUM_{t=0}^{Years-1} Rent0 * (1 + Rent_inf)^t * 12
+
+Home_val_future = H_price * (1 + App_rate)**Years
+
+Loan_bal_future = Loan * (1 + r)**n - PI * (((1 + r)**n - (1 + r)**(Years*12)) / r)
+
+Equity_future = Home_val_future - Loan_bal_future
+
+Net_buy_gain = Equity_future - (FV_down)       # ignores selling costs & tax
+
+
+⸻
+
+Putting it to work
+	1.	Plug in all the blue-box inputs.
+	2.	Compute section 2 values.
+	3.	Run section 3 to see if the deal hits your chosen DTI band.
+	4.	Check section 5 cash.
+	5.	(Optional) sanity-check section 6 Net-worth share and section 7 lay-off buffer.
+	6.	Use section 8 if you want a rent-vs-buy dashboard.
+
+Now you have a single list of equations you can drop into Excel, Sheets, Notion, Python, or an Airtable formula field. Tweak any input and watch the affordability lights turn green—or red—instantly.
