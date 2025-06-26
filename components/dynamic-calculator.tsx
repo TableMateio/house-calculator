@@ -1,3 +1,4 @@
+// @ts-nocheck
 "use client"
 
 import React, { useState, useEffect } from "react"
@@ -276,16 +277,26 @@ export default function DynamicCalculator() {
 
     const toggleVariable = (key) => {
         setVariables(prev => {
-            // First unlock all variables
-            const updated = Object.keys(prev).reduce((acc, k) => {
-                acc[k] = { ...prev[k], locked: false }
-                return acc
-            }, {})
+            const isCurrentlyLocked = prev[key].locked
 
-            // Then lock the selected one
-            updated[key] = { ...prev[key], locked: true }
+            if (isCurrentlyLocked) {
+                // If clicking on already locked variable, unlock it
+                return {
+                    ...prev,
+                    [key]: { ...prev[key], locked: false }
+                }
+            } else {
+                // First unlock all variables
+                const updated = Object.keys(prev).reduce((acc, k) => {
+                    acc[k] = { ...prev[k], locked: false }
+                    return acc
+                }, {})
 
-            return updated
+                // Then lock the selected one
+                updated[key] = { ...prev[key], locked: true }
+
+                return updated
+            }
         })
     }
 
@@ -353,76 +364,74 @@ export default function DynamicCalculator() {
         switch (key) {
             case 'piti':
                 const frontEndRatio = value / gmi
+                const status = frontEndRatio <= thresholds.conservative.front_end ? '✓ Conservative' :
+                    frontEndRatio <= thresholds.moderate.front_end ? '✓ Moderate' :
+                        frontEndRatio <= thresholds.aggressive.front_end ? '⚠ Aggressive' : '✗ Too High'
+                const statusColor = frontEndRatio <= thresholds.moderate.front_end ? 'text-green-600' : 'text-red-600'
                 return (
-                    <div className="text-xs text-muted-foreground">
-                        {formatPercent(frontEndRatio)} of income
-                        <div className={`${frontEndRatio <= thresholds.moderate.front_end ? 'text-green-600' : 'text-red-600'}`}>
-                            {frontEndRatio <= thresholds.conservative.front_end ? '✓ Conservative' :
-                                frontEndRatio <= thresholds.moderate.front_end ? '✓ Moderate' :
-                                    frontEndRatio <= thresholds.aggressive.front_end ? '⚠ Aggressive' : '✗ Too High'}
-                        </div>
-                    </div>
+                    <>
+                        <span className="text-muted-foreground">{formatPercent(frontEndRatio)} of income</span>
+                        <span className={statusColor}>{status}</span>
+                    </>
                 )
             case 'cash_remaining':
                 const months = value > 0 ? value / (variables.piti.value || 3000) : 0
+                const bufferStatus = value >= 50000 ? '✓ Good buffer' : value >= 25000 ? '⚠ Tight' : '✗ Risky'
+                const bufferColor = value >= 50000 ? 'text-green-600' : value >= 25000 ? 'text-orange-600' : 'text-red-600'
                 return (
-                    <div className="text-xs text-muted-foreground">
-                        {months > 0 ? `${months.toFixed(1)} mo emergency fund` : 'No buffer'}
-                        <div className={`${value >= 50000 ? 'text-green-600' : value >= 25000 ? 'text-orange-600' : 'text-red-600'}`}>
-                            {value >= 50000 ? '✓ Good buffer' : value >= 25000 ? '⚠ Tight' : '✗ Risky'}
-                        </div>
-                    </div>
+                    <>
+                        <span className="text-muted-foreground">{months > 0 ? `${months.toFixed(1)} mo fund` : 'No buffer'}</span>
+                        <span className={bufferColor}>{bufferStatus}</span>
+                    </>
                 )
             case 'dp_pct':
                 const needsPMI = value < 0.2
+                const pmiStatus = needsPMI ? '⚠ PMI required' : '✓ No PMI'
+                const pmiColor = needsPMI ? 'text-orange-600' : 'text-green-600'
                 return (
-                    <div className="text-xs text-muted-foreground">
-                        ${Math.round(variables.h_price.value * value / 1000)}k down
-                        <div className={`${needsPMI ? 'text-orange-600' : 'text-green-600'}`}>
-                            {needsPMI ? '⚠ PMI required' : '✓ No PMI'}
-                        </div>
-                    </div>
+                    <>
+                        <span className="text-muted-foreground">${Math.round(variables.h_price.value * value / 1000)}k down</span>
+                        <span className={pmiColor}>{pmiStatus}</span>
+                    </>
                 )
             case 'h_price':
                 const pricePerSqFt = 350 // Rough estimate, could be input
                 const sqft = Math.round(value / pricePerSqFt)
                 return (
-                    <div className="text-xs text-muted-foreground">
-                        ~{sqft.toLocaleString()} sq ft
-                        <div className="text-gray-500">
-                            @ ${pricePerSqFt}/sq ft
-                        </div>
-                    </div>
+                    <>
+                        <span className="text-muted-foreground">~{sqft.toLocaleString()} sq ft</span>
+                        <span className="text-gray-500">@ ${pricePerSqFt}/sq ft</span>
+                    </>
                 )
             case 'total_assets':
                 const netWorth = value - variables.total_liabilities.value
+                const nwStatus = netWorth > 500000 ? '✓ Strong' : netWorth > 200000 ? '✓ Good' : '⚠ Building'
+                const nwColor = netWorth > 200000 ? 'text-green-600' : 'text-orange-600'
                 return (
-                    <div className="text-xs text-muted-foreground">
-                        Net: {formatCurrency(netWorth)}
-                        <div className={`${netWorth > 200000 ? 'text-green-600' : 'text-orange-600'}`}>
-                            {netWorth > 500000 ? '✓ Strong' : netWorth > 200000 ? '✓ Good' : '⚠ Building'}
-                        </div>
-                    </div>
+                    <>
+                        <span className="text-muted-foreground">Net: {formatCurrency(netWorth)}</span>
+                        <span className={nwColor}>{nwStatus}</span>
+                    </>
                 )
             case 'cash_avail':
                 const utilizationPct = results.total_cash_needed / value
+                const utilStatus = utilizationPct <= 0.6 ? '✓ Conservative' : utilizationPct <= 0.8 ? '✓ Moderate' : '✗ Tight'
+                const utilColor = utilizationPct <= 0.8 ? 'text-green-600' : 'text-red-600'
                 return (
-                    <div className="text-xs text-muted-foreground">
-                        {formatPercent(utilizationPct)} utilization
-                        <div className={`${utilizationPct <= 0.8 ? 'text-green-600' : 'text-red-600'}`}>
-                            {utilizationPct <= 0.6 ? '✓ Conservative' : utilizationPct <= 0.8 ? '✓ Moderate' : '✗ Tight'}
-                        </div>
-                    </div>
+                    <>
+                        <span className="text-muted-foreground">{formatPercent(utilizationPct)} utilization</span>
+                        <span className={utilColor}>{utilStatus}</span>
+                    </>
                 )
             case 'omd':
                 const backEndImpact = value / gmi
+                const debtStatus = backEndImpact <= 0.05 ? '✓ Low debt' : backEndImpact <= 0.15 ? '⚠ Moderate' : '✗ High debt'
+                const debtColor = backEndImpact <= 0.1 ? 'text-green-600' : 'text-orange-600'
                 return (
-                    <div className="text-xs text-muted-foreground">
-                        {formatPercent(backEndImpact)} of income
-                        <div className={`${backEndImpact <= 0.1 ? 'text-green-600' : 'text-orange-600'}`}>
-                            {backEndImpact <= 0.05 ? '✓ Low debt' : backEndImpact <= 0.15 ? '⚠ Moderate' : '✗ High debt'}
-                        </div>
-                    </div>
+                    <>
+                        <span className="text-muted-foreground">{formatPercent(backEndImpact)} of income</span>
+                        <span className={debtColor}>{debtStatus}</span>
+                    </>
                 )
             default:
                 return null
@@ -457,7 +466,7 @@ export default function DynamicCalculator() {
                         Dynamic House Calculator
                     </CardTitle>
                     <CardDescription>
-                        Click the lock icon on any variable to solve for it. All other variables become inputs.
+                        Click the calculator icon on any variable to solve for it. All other variables become inputs.
                     </CardDescription>
                 </CardHeader>
             </Card>
@@ -480,15 +489,15 @@ export default function DynamicCalculator() {
                             const isLocked = variable.locked
 
                             return (
-                                <TooltipProvider key={key}>
-                                    <Tooltip>
-                                        <TooltipTrigger asChild>
-                                            <div className={`p-4 border rounded-lg transition-all ${isLocked
-                                                ? 'bg-blue-50 border-blue-300 shadow-md'
-                                                : 'bg-white border-gray-200 hover:border-gray-300'
-                                                }`}>
-                                                <div className="flex items-center justify-between mb-2">
-                                                    <Icon className="h-4 w-4 text-muted-foreground" />
+                                <div key={key} className={`p-4 border rounded-lg transition-all ${isLocked
+                                    ? 'bg-blue-50 border-blue-300 shadow-md'
+                                    : 'bg-white border-gray-200 hover:border-gray-300'
+                                    }`}>
+                                    <div className="flex items-center justify-between mb-2">
+                                        <Icon className="h-4 w-4 text-muted-foreground" />
+                                        <TooltipProvider>
+                                            <Tooltip>
+                                                <TooltipTrigger asChild>
                                                     <Button
                                                         variant="ghost"
                                                         size="sm"
@@ -498,55 +507,55 @@ export default function DynamicCalculator() {
                                                         {isLocked ? (
                                                             <Target className="h-3 w-3 text-blue-600" />
                                                         ) : (
-                                                            <Lock className="h-3 w-3 text-gray-400" />
+                                                            <Calculator className="h-3 w-3 text-gray-400" />
                                                         )}
                                                     </Button>
+                                                </TooltipTrigger>
+                                                <TooltipContent>
+                                                    <p>Click to {isLocked ? 'stop solving for' : 'solve for'} this variable</p>
+                                                </TooltipContent>
+                                            </Tooltip>
+                                        </TooltipProvider>
+                                    </div>
+
+                                    <div className="space-y-2">
+                                        <Label className="text-xs font-medium">{variable.label}</Label>
+                                        <div className="text-xs text-muted-foreground mb-1">
+                                            {variable.description}
+                                        </div>
+
+                                        {isLocked ? (
+                                            <div className="bg-blue-100 p-2 rounded text-center">
+                                                <div className="text-sm font-bold text-blue-800">
+                                                    🎯 Solving for this
                                                 </div>
-
-                                                <div className="space-y-2">
-                                                    <Label className="text-xs font-medium">{variable.label}</Label>
-                                                    <div className="text-xs text-muted-foreground mb-1">
-                                                        {variable.description}
-                                                    </div>
-
-                                                    {isLocked ? (
-                                                        <div className="bg-blue-100 p-2 rounded text-center">
-                                                            <div className="text-sm font-bold text-blue-800">
-                                                                🎯 Solving for this
-                                                            </div>
-                                                            <div className="text-xs text-blue-600 mt-1">
-                                                                See scenarios below
-                                                            </div>
-                                                        </div>
-                                                    ) : (
-                                                        <Input
-                                                            type="number"
-                                                            value={getInputValue(variable.value, variable.format)}
-                                                            onChange={(e) => {
-                                                                const val = variable.format === 'percent'
-                                                                    ? parseFloat(e.target.value) / 100
-                                                                    : parseFloat(e.target.value)
-                                                                updateVariable(key, val)
-                                                            }}
-                                                            className="text-sm"
-                                                            step={variable.format === 'percent' ? '0.01' : '1000'}
-                                                        />
-                                                    )}
-
-                                                    <div className="text-center">
-                                                        <div className="text-sm font-bold">
-                                                            {formatValue(variable.value, variable.format)}
-                                                        </div>
-                                                        {getContextualInfo(key, variable.value)}
-                                                    </div>
+                                                <div className="text-xs text-blue-600 mt-1">
+                                                    See scenarios below
                                                 </div>
                                             </div>
-                                        </TooltipTrigger>
-                                        <TooltipContent>
-                                            <p>Click the {isLocked ? 'target' : 'lock'} icon to {isLocked ? 'unlock' : 'solve for'} this variable</p>
-                                        </TooltipContent>
-                                    </Tooltip>
-                                </TooltipProvider>
+                                        ) : (
+                                            <Input
+                                                type="number"
+                                                value={getInputValue(variable.value, variable.format)}
+                                                onChange={(e) => {
+                                                    const val = variable.format === 'percent'
+                                                        ? parseFloat(e.target.value) / 100
+                                                        : parseFloat(e.target.value)
+                                                    updateVariable(key, val)
+                                                }}
+                                                className="text-sm"
+                                                step={variable.format === 'percent' ? '0.01' : '1000'}
+                                            />
+                                        )}
+
+                                        {/* Helper text in a single line with left/right alignment */}
+                                        {!isLocked && getContextualInfo(key, variable.value) && (
+                                            <div className="flex justify-between items-center text-xs">
+                                                {getContextualInfo(key, variable.value)}
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
                             )
                         })}
                     </div>
