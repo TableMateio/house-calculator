@@ -1,3 +1,5 @@
+"use client"
+
 import DynamicCalculator from "@/components/dynamic-calculator"
 
 export default function Home() {

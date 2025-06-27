@@ -19,7 +19,7 @@ export default function EnhancedScenarioPlanner({
 }) {
     const [scenarios, setScenarios] = useState([])
     const [selectedScenario, setSelectedScenario] = useState(null)
-    const [targetMode, setTargetMode] = useState("targetSavings") // targetSavings, targetHouse, maxAffordability
+    const [targetMode, setTargetMode] = useState("targetDTI") // Default to solving for down payment to achieve DTI targets
 
     // Generate scenarios based on target mode
     useEffect(() => {
@@ -78,6 +78,28 @@ export default function EnhancedScenarioPlanner({
             })
 
             setScenarios(newScenarios)
+        } else if (targetMode === "targetDTI") {
+            // Generate scenarios that solve for down payment to meet comfortable DTI targets
+            // Instead of hitting the limits, aim for DTI levels that are comfortably within ranges
+            const dtiTargets = {
+                "Ultra Conservative": 0.25,  // Very safe DTI
+                "Conservative": 0.30,        // Well below 36% conservative threshold
+                "Moderate": 0.35,           // Just under conservative threshold
+                "Balanced": 0.40,           // Between thresholds
+                "Aggressive": 0.42,         // Just below moderate threshold of 43%
+            }
+
+            const newScenarios = Object.entries(dtiTargets).map(([name, dtiTarget]) => {
+                const result = calculateDownPaymentForDTI(dtiTarget)
+                return {
+                    id: `target-dti-${dtiTarget}`,
+                    name: `${name} (${formatPercent(dtiTarget)} DTI)`,
+                    dtiTarget,
+                    ...result
+                }
+            }).filter(scenario => scenario.valid) // Only include valid scenarios
+
+            setScenarios(newScenarios)
         }
     }
 
@@ -103,6 +125,47 @@ export default function EnhancedScenarioPlanner({
         }
 
         return calculateScenarioForHouse(bestPrice, inputs.dp_pct)
+    }
+
+    // Calculate DP needed to hit a DTI target
+    const calculateDownPaymentForDTI = (dtiTarget) => {
+        const gmi = derived.gmi
+        const monthlyDebt = inputs.isMonthlyDebt ? inputs.omd : inputs.omd / 12
+        const maxPiti = gmi * dtiTarget - monthlyDebt
+
+        if (maxPiti <= 0) return { homePrice: inputs.h_price, valid: false }
+
+        // Iteratively find the down payment percentage
+        let minDp = 0.0
+        let maxDp = 1.0
+        let bestDp = -1
+
+        for (let i = 0; i < 20; i++) { // 20 iterations for convergence
+            const testDp = (minDp + maxDp) / 2
+            // Need to prevent dp from being too high in edge cases
+            if (testDp > 0.95) {
+                bestDp = -1
+                break
+            }
+            const testPiti = calculatePITI(inputs.h_price, testDp)
+
+            if (testPiti <= maxPiti) {
+                // This DP is achievable, try for a lower DP
+                bestDp = testDp
+                maxDp = testDp
+            } else {
+                // This DP is too low, need to put more down
+                minDp = testDp
+            }
+
+            if (maxDp - minDp < 0.001) break // Close enough
+        }
+
+        if (bestDp !== -1) {
+            return calculateScenarioForHouse(inputs.h_price, bestDp)
+        }
+
+        return { homePrice: inputs.h_price, valid: false }
     }
 
     // Calculate max house price from DTI target
@@ -179,9 +242,10 @@ export default function EnhancedScenarioPlanner({
         const pi = (loan * r * Math.pow(1 + r, n)) / (Math.pow(1 + r, n) - 1)
         const tax = (homePrice * inputs.pt_rate) / 12
         const ins = (homePrice * inputs.hi_rate) / 12
-        const pmi = dpPct < 0.2 ? (loan * inputs.pmi_rate) / 12 : 0
+        const pmi_rate = 0.01 // Fixed PMI rate
+        const pmi = dpPct < 0.2 ? (loan * pmi_rate) / 12 : 0
 
-        return pi + tax + ins + pmi
+        return pi + tax + ins + pmi + (inputs.upkeep_costs || 0)
     }
 
     // Apply selected scenario
@@ -229,12 +293,14 @@ export default function EnhancedScenarioPlanner({
                             <SelectValue placeholder="Select planning mode" />
                         </SelectTrigger>
                         <SelectContent>
+                            <SelectItem value="targetDTI">Target DTI</SelectItem>
                             <SelectItem value="targetSavings">Target Savings Remaining</SelectItem>
                             <SelectItem value="targetHouse">Target House Price</SelectItem>
                             <SelectItem value="maxAffordability">Maximum Affordability</SelectItem>
                         </SelectContent>
                     </Select>
                     <p className="text-xs text-muted-foreground">
+                        {targetMode === "targetDTI" && "Calculate the down payment needed to achieve comfortable DTI ranges (green/yellow/orange) for this house price"}
                         {targetMode === "targetSavings" && "Find house prices that leave you with specific cash amounts"}
                         {targetMode === "targetHouse" && "Explore down payment options for a specific house price"}
                         {targetMode === "maxAffordability" && "See maximum house prices at different debt-to-income ratios"}
