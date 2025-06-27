@@ -20,55 +20,136 @@ import {
     TrendingUp,
     PieChart,
     Clock,
-    Calculator
+    Calculator,
+    Shield,
+    FileText,
+    Wallet,
+    Wrench,
+    Construction
 } from "lucide-react"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion"
+
+const variableGroups = [
+    {
+        name: "Purchase",
+        keys: ["h_price", "dp_pct"]
+    },
+    {
+        name: "Loan & Rates",
+        keys: ["i_yr", "t_yrs"]
+    },
+    {
+        name: "Income & Debts",
+        keys: ["n_inc", "s_inc", "omd"]
+    },
+    {
+        name: "Cash & Assets",
+        keys: ["cash_avail", "total_assets", "total_liabilities"]
+    },
+    {
+        name: "Ongoing Costs",
+        keys: ["pt_rate", "hi_rate", "upkeep_costs"]
+    },
+    {
+        name: "Closing & One-Time",
+        keys: ["cc_pct", "reno_budget", "res_mo"]
+    },
+    {
+        name: "Calculated Outputs",
+        keys: ["piti", "cash_remaining"],
+        isOutput: true,
+    }
+]
 
 export default function DynamicCalculator() {
     // Variable definitions with their properties
     const [variables, setVariables] = useState({
         h_price: { value: 750000, locked: false, label: "Home Price", icon: Home, format: "currency", description: "Target purchase price" },
         dp_pct: { value: 0.2, locked: false, label: "Down Payment %", icon: Percent, format: "percent", description: "Percent of price paid upfront" },
-        piti: { value: 0, locked: false, label: "Monthly Payment", icon: DollarSign, format: "currency", description: "Total housing payment (PITI)" },
-        cash_remaining: { value: 0, locked: false, label: "Cash Remaining", icon: DollarSign, format: "currency", description: "Cash left after purchase" },
         i_yr: { value: 0.0675, locked: false, label: "Interest Rate", icon: Percent, format: "percent", description: "Annual mortgage rate" },
         t_yrs: { value: 30, locked: false, label: "Loan Term", icon: Calendar, format: "years", description: "Mortgage term length" },
+
         n_inc: { value: 170000, locked: false, label: "Nicole's Income", icon: DollarSign, format: "currency", description: "Annual gross income" },
         s_inc: { value: 80000, locked: false, label: "Scott's Income", icon: DollarSign, format: "currency", description: "Annual gross income" },
         omd: { value: 500, locked: false, label: "Other Monthly Debt", icon: DollarSign, format: "currency", description: "Credit cards, loans, etc." },
+
         cash_avail: { value: 200000, locked: false, label: "Available Cash", icon: DollarSign, format: "currency", description: "Liquid cash for purchase" },
         total_assets: { value: 400000, locked: false, label: "Total Assets", icon: PieChart, format: "currency", description: "All investments, cash, property" },
         total_liabilities: { value: 50000, locked: false, label: "Total Liabilities", icon: PieChart, format: "currency", description: "All debts and obligations" },
+
+        pt_rate: { value: 0.0125, locked: false, label: "Property Tax Rate", icon: Percent, format: "percent", description: "Annual property tax as % of home value" },
+        hi_rate: { value: 0.004, locked: false, label: "Home Insurance + HOA", icon: Shield, format: "percent", description: "Annual insurance + HOA as % of home value" },
+        upkeep_costs: { value: 250, locked: false, label: "Monthly Upkeep", icon: Construction, format: "currency", description: "Estimated monthly maintenance/repairs" },
+
+        cc_pct: { value: 0.04, locked: false, label: "Closing Costs", icon: FileText, format: "percent", description: "Closing costs as % of home price" },
+        reno_budget: { value: 0, locked: false, label: "Renovation Budget", icon: Wrench, format: "currency", description: "Budget for immediate renovations" },
+        res_mo: { value: 6, locked: false, label: "Required Reserves", icon: Wallet, format: "months", description: "Months of PITI in reserves" },
+
+        // These are now calculated, not state
+        // piti: { value: 0, locked: false, label: "Monthly Payment", icon: DollarSign, format: "currency", description: "Total housing payment (PITI + upkeep)" },
+        // cash_remaining: { value: 0, locked: false, label: "Cash Remaining", icon: DollarSign, format: "currency", description: "Cash left after all costs" },
     })
 
     // Fixed parameters (rates and percentages that typically don't change)
-    const [parameters, setParameters] = useState({
-        pt_rate: 0.0125,
-        hi_rate: 0.004,
-        pmi_rate: 0.01,
-        cc_pct: 0.04,
-        res_mo: 6,
-    })
+    const parameters = {
+        pmi_rate: 0.01, // Keep PMI rate as fixed since it's typically set by lender
+    }
 
-    // Derived calculations
-    const [results, setResults] = useState({
-        gmi: 0,
-        loan: 0,
-        down_pmt: 0,
-        pi: 0,
-        tax: 0,
-        ins: 0,
-        pmi: 0,
-        total_cash_needed: 0,
-        cash_remaining: 0,
-        front_end: 0,
-        back_end: 0,
-        net_worth: 0,
-        equity_pct_of_nw: 0,
-        layoff_months: 0,
-    })
+    // All calculations are now derived state, computed on each render
+    const derivedResults = React.useMemo(() => {
+        const gmi = (variables.n_inc.value + variables.s_inc.value) / 12
+        const loan = variables.h_price.value * (1 - variables.dp_pct.value)
+        const down_pmt = variables.h_price.value * variables.dp_pct.value
 
-    // Scenarios for locked variable
+        const r = variables.i_yr.value / 12
+        const n = variables.t_yrs.value * 12
+        const pi =
+            n > 0 && r > 0
+                ? (loan * r * Math.pow(1 + r, n)) / (Math.pow(1 + r, n) - 1)
+                : n > 0 ? loan / n : 0
+
+        const tax = (variables.h_price.value * variables.pt_rate.value) / 12
+        const ins = (variables.h_price.value * variables.hi_rate.value) / 12
+
+        const pmi = variables.dp_pct.value < 0.2 ? (loan * parameters.pmi_rate) / 12 : 0
+
+        const piti = pi + tax + ins + pmi + variables.upkeep_costs.value
+        const total_cash_needed =
+            down_pmt +
+            variables.h_price.value * variables.cc_pct.value +
+            piti * variables.res_mo.value +
+            variables.reno_budget.value
+
+        const cash_remaining = variables.cash_avail.value - total_cash_needed
+
+        const front_end = gmi > 0 ? piti / gmi : 0
+        const back_end = gmi > 0 ? (piti + variables.omd.value) / gmi : 0
+
+        const net_worth = variables.total_assets.value - variables.total_liabilities.value
+        const equity_pct_of_nw = net_worth > 0 ? down_pmt / net_worth : 0
+        const layoff_months = piti > 0 ? variables.cash_avail.value / piti : 0
+
+        return {
+            gmi,
+            loan,
+            down_pmt,
+            pi,
+            tax,
+            ins,
+            pmi,
+            piti,
+            total_cash_needed,
+            cash_remaining,
+            front_end,
+            back_end,
+            net_worth,
+            equity_pct_of_nw,
+            layoff_months,
+        }
+    }, [variables])
+
+    // This state is now only for scenarios, not main results
     const [scenarios, setScenarios] = useState([])
 
     // Approval thresholds
@@ -78,62 +159,15 @@ export default function DynamicCalculator() {
         aggressive: { front_end: 0.4, back_end: 0.45, net_worth: 0.65 },
     }
 
-    const calculateResults = () => {
-        const gmi = (variables.n_inc.value + variables.s_inc.value) / 12
-        const loan = variables.h_price.value * (1 - variables.dp_pct.value)
-        const down_pmt = variables.h_price.value * variables.dp_pct.value
-
-        const r = variables.i_yr.value / 12
-        const n = variables.t_yrs.value * 12
-        const pi = (loan * r * Math.pow(1 + r, n)) / (Math.pow(1 + r, n) - 1)
-
-        const tax = (variables.h_price.value * parameters.pt_rate) / 12
-        const ins = (variables.h_price.value * parameters.hi_rate) / 12
-        const pmi = variables.dp_pct.value < 0.2 ? (loan * parameters.pmi_rate) / 12 : 0
-
-        const piti = pi + tax + ins + pmi
-        const total_cash_needed = down_pmt + (variables.h_price.value * parameters.cc_pct) + (piti * parameters.res_mo)
-        const cash_remaining = variables.cash_avail.value - total_cash_needed
-
-        const front_end = piti / gmi
-        const back_end = (piti + variables.omd.value) / gmi
-
-        const net_worth = variables.total_assets.value - variables.total_liabilities.value
-        const equity_pct_of_nw = net_worth > 0 ? down_pmt / net_worth : 0
-        const layoff_months = variables.cash_avail.value / piti
-
-        // Update results first
-        setResults({
-            gmi, loan, down_pmt, pi, tax, ins, pmi,
-            total_cash_needed, cash_remaining, front_end, back_end,
-            net_worth, equity_pct_of_nw, layoff_months
-        })
-
-        // Update calculated variables if they're not locked (but only if values actually changed)
-        if (!variables.piti.locked && Math.abs(variables.piti.value - piti) > 0.01) {
-            setVariables(prev => ({
-                ...prev,
-                piti: { ...prev.piti, value: piti }
-            }))
-        }
-
-        if (!variables.cash_remaining.locked && Math.abs(variables.cash_remaining.value - cash_remaining) > 0.01) {
-            setVariables(prev => ({
-                ...prev,
-                cash_remaining: { ...prev.cash_remaining, value: cash_remaining }
-            }))
-        }
-    }
-
     const generateScenarios = () => {
-        const lockedVar = Object.keys(variables).find(key => variables[key].locked)
-        if (!lockedVar) {
+        const lockedVarKey = Object.keys(variables).find(key => variables[key].locked)
+        if (!lockedVarKey) {
             setScenarios([])
             return
         }
 
         // Generate scenarios based on what's locked
-        if (lockedVar === 'h_price') {
+        if (lockedVarKey === 'h_price') {
             const scenarios = ['conservative', 'moderate', 'aggressive'].map(scenario => {
                 const maxPrice = calculateMaxPrice(scenario)
                 return {
@@ -144,7 +178,7 @@ export default function DynamicCalculator() {
                 }
             })
             setScenarios(scenarios)
-        } else if (lockedVar === 'piti') {
+        } else if (lockedVarKey === 'piti') {
             const scenarios = ['conservative', 'moderate', 'aggressive'].map(scenario => {
                 const maxPayment = calculateMaxPayment(scenario)
                 return {
@@ -155,7 +189,7 @@ export default function DynamicCalculator() {
                 }
             })
             setScenarios(scenarios)
-        } else if (lockedVar === 'cash_remaining') {
+        } else if (lockedVarKey === 'cash_remaining') {
             const targetAmounts = [25000, 50000, 100000] // Conservative, moderate, aggressive cash targets
             const scenarios = targetAmounts.map((amount, idx) => {
                 const scenario = ['conservative', 'moderate', 'aggressive'][idx]
@@ -168,7 +202,7 @@ export default function DynamicCalculator() {
                 }
             })
             setScenarios(scenarios)
-        } else if (lockedVar === 'dp_pct') {
+        } else if (lockedVarKey === 'dp_pct') {
             const targetPercentages = [0.05, 0.1, 0.2] // 5%, 10%, 20% down
             const scenarios = targetPercentages.map((pct, idx) => {
                 const scenario = ['aggressive', 'moderate', 'conservative'][idx]
@@ -185,11 +219,15 @@ export default function DynamicCalculator() {
         }
     }
 
-    // Calculate everything when variables change
+    // This effect now only generates scenarios when inputs change
     useEffect(() => {
-        calculateResults()
-        generateScenarios()
-    }, [variables, parameters])
+        const lockedVar = Object.keys(variables).find(key => variables[key].locked)
+        if (lockedVar) {
+            generateScenarios()
+        } else {
+            setScenarios([])
+        }
+    }, [variables])
 
     const calculateMaxPrice = (scenario) => {
         const gmi = (variables.n_inc.value + variables.s_inc.value) / 12
@@ -201,11 +239,13 @@ export default function DynamicCalculator() {
         const r = variables.i_yr.value / 12
         const n = variables.t_yrs.value * 12
         const paymentFactor = (r * Math.pow(1 + r, n)) / (Math.pow(1 + r, n) - 1)
-        const taxInsPct = (parameters.pt_rate + parameters.hi_rate) / 12
-        const pmiPct = variables.dp_pct.value < 0.2 ? parameters.pmi_rate / 12 : 0
+        const taxInsPct = (variables.pt_rate.value + variables.hi_rate.value) / 12
+
+        const pmi_rate = 0.01
+        const pmiPct = variables.dp_pct.value < 0.2 ? pmi_rate / 12 : 0
 
         const combinedFactor = paymentFactor + taxInsPct / (1 - variables.dp_pct.value) + pmiPct * (1 - variables.dp_pct.value)
-        const maxLoan = maxPiti / combinedFactor
+        const maxLoan = maxPiti > 0 && combinedFactor > 0 ? maxPiti / combinedFactor : 0
         return maxLoan / (1 - variables.dp_pct.value)
     }
 
@@ -224,16 +264,18 @@ export default function DynamicCalculator() {
 
         while (iterations < maxIterations) {
             const downPmt = price * variables.dp_pct.value
-            const closingCosts = price * parameters.cc_pct
+            const closingCosts = price * variables.cc_pct.value
             const r = variables.i_yr.value / 12
             const n = variables.t_yrs.value * 12
             const loan = price * (1 - variables.dp_pct.value)
             const pi = (loan * r * Math.pow(1 + r, n)) / (Math.pow(1 + r, n) - 1)
-            const tax = (price * parameters.pt_rate) / 12
-            const ins = (price * parameters.hi_rate) / 12
-            const pmi = variables.dp_pct.value < 0.2 ? (loan * parameters.pmi_rate) / 12 : 0
-            const piti = pi + tax + ins + pmi
-            const reserves = piti * parameters.res_mo
+            const tax = (price * variables.pt_rate.value) / 12
+            const ins = (price * variables.hi_rate.value) / 12
+
+            const pmi_rate = 0.01
+            const pmi = variables.dp_pct.value < 0.2 ? (loan * pmi_rate) / 12 : 0
+            const piti = pi + tax + ins + pmi + variables.upkeep_costs.value
+            const reserves = piti * variables.res_mo.value
 
             const totalCashNeeded = downPmt + closingCosts + reserves
             const cashRemaining = variables.cash_avail.value - totalCashNeeded
@@ -256,14 +298,29 @@ export default function DynamicCalculator() {
 
     const getScenarioStatus = (price, scenario, payment) => {
         const currentPrice = price || variables.h_price.value
-        const currentPayment = payment || results.piti || variables.piti.value
         const gmi = (variables.n_inc.value + variables.s_inc.value) / 12
 
-        const frontEnd = currentPayment / gmi
-        const backEnd = (currentPayment + variables.omd.value) / gmi
-        const cashNeeded = (currentPrice * variables.dp_pct.value) +
-            (currentPrice * parameters.cc_pct) +
-            (currentPayment * parameters.res_mo)
+        // Recalculate PITI for the scenario
+        const r = variables.i_yr.value / 12
+        const n = variables.t_yrs.value * 12
+        const loan = currentPrice * (1 - variables.dp_pct.value)
+        const pi = (loan * r * Math.pow(1 + r, n)) / (Math.pow(1 + r, n) - 1)
+        const tax = (currentPrice * variables.pt_rate.value) / 12
+        const ins = (currentPrice * variables.hi_rate.value) / 12
+
+        const pmi_rate = 0.01
+        const pmi = variables.dp_pct.value < 0.2 ? (loan * pmi_rate) / 12 : 0
+        const piti = pi + tax + ins + pmi + variables.upkeep_costs.value
+
+        const currentPayment = payment || piti
+
+        const frontEnd = gmi > 0 ? currentPayment / gmi : 0
+        const backEnd = gmi > 0 ? (currentPayment + variables.omd.value) / gmi : 0
+        const cashNeeded =
+            currentPrice * variables.dp_pct.value +
+            currentPrice * variables.cc_pct.value +
+            currentPayment * variables.res_mo.value +
+            variables.reno_budget.value
 
         return {
             frontEndPass: frontEnd <= thresholds[scenario].front_end,
@@ -375,7 +432,7 @@ export default function DynamicCalculator() {
                     </>
                 )
             case 'cash_remaining':
-                const months = value > 0 ? value / (variables.piti.value || 3000) : 0
+                const months = value > 0 ? value / (derivedResults.piti || 3000) : 0
                 const bufferStatus = value >= 50000 ? '✓ Good buffer' : value >= 25000 ? '⚠ Tight' : '✗ Risky'
                 const bufferColor = value >= 50000 ? 'text-green-600' : value >= 25000 ? 'text-orange-600' : 'text-red-600'
                 return (
@@ -414,7 +471,7 @@ export default function DynamicCalculator() {
                     </>
                 )
             case 'cash_avail':
-                const utilizationPct = results.total_cash_needed / value
+                const utilizationPct = value > 0 ? derivedResults.total_cash_needed / value : 0
                 const utilStatus = utilizationPct <= 0.6 ? '✓ Conservative' : utilizationPct <= 0.8 ? '✓ Moderate' : '✗ Tight'
                 const utilColor = utilizationPct <= 0.8 ? 'text-green-600' : 'text-red-600'
                 return (
@@ -431,6 +488,36 @@ export default function DynamicCalculator() {
                     <>
                         <span className="text-muted-foreground">{formatPercent(backEndImpact)} of income</span>
                         <span className={debtColor}>{debtStatus}</span>
+                    </>
+                )
+            case 'res_mo':
+                const resAmount = derivedResults.piti * value
+                const resStatus = value >= 6 ? '✓ Safe' : value >= 3 ? '⚠ Tight' : '✗ Risky'
+                const resColor = value >= 6 ? 'text-green-600' : value >= 3 ? 'text-orange-600' : 'text-red-600'
+                return (
+                    <>
+                        <span className="text-muted-foreground">{formatCurrency(resAmount)} reserve</span>
+                        <span className={resColor}>{resStatus}</span>
+                    </>
+                )
+            case 'reno_budget':
+                const renoPct = variables.h_price.value > 0 ? value / variables.h_price.value : 0
+                const renoStatus = renoPct <= 0.05 ? '✓ Light' : renoPct <= 0.15 ? '⚠ Moderate' : '✗ Major'
+                const renoColor = renoPct <= 0.05 ? 'text-green-600' : renoPct <= 0.15 ? 'text-orange-600' : 'text-red-600'
+                return (
+                    <>
+                        <span className="text-muted-foreground">{formatPercent(renoPct)} of price</span>
+                        <span className={renoColor}>{renoStatus}</span>
+                    </>
+                )
+            case 'upkeep_costs':
+                const upkeepPct = variables.h_price.value > 0 ? (value * 12) / variables.h_price.value : 0
+                const upkeepStatus = upkeepPct <= 0.01 ? '✓ Low' : upkeepPct <= 0.02 ? '✓ Typical' : '⚠ High'
+                const upkeepColor = upkeepPct <= 0.02 ? 'text-green-600' : 'text-orange-600'
+                return (
+                    <>
+                        <span className="text-muted-foreground">{formatPercent(upkeepPct)}/yr of price</span>
+                        <span className={upkeepColor}>{upkeepStatus}</span>
                     </>
                 )
             default:
@@ -478,87 +565,110 @@ export default function DynamicCalculator() {
                     <CardDescription>
                         {lockedVariable
                             ? `Solving for: ${variables[lockedVariable].label}`
-                            : "Select a variable to solve for by clicking its lock icon"
+                            : "Select a variable to solve for by clicking its calculator icon"
                         }
                     </CardDescription>
                 </CardHeader>
                 <CardContent>
-                    <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-                        {Object.entries(variables).map(([key, variable]) => {
-                            const Icon = variable.icon
-                            const isLocked = variable.locked
+                    <Accordion type="multiple" defaultValue={variableGroups.map(g => g.name)} className="w-full">
+                        {variableGroups.map((group) => (
+                            <AccordionItem value={group.name} key={group.name}>
+                                <AccordionTrigger className="text-sm font-semibold">{group.name}</AccordionTrigger>
+                                <AccordionContent>
+                                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 pt-2">
+                                        {group.keys.map(key => {
+                                            const variable = variables[key] || {
+                                                ...derivedResults[key],
+                                                label: key.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase()),
+                                                description: `Calculated ${key}`,
+                                                icon: Calculator,
+                                                format: 'currency',
+                                                value: derivedResults[key]
+                                            }
+                                            if (!variable) return null
 
-                            return (
-                                <div key={key} className={`p-4 border rounded-lg transition-all ${isLocked
-                                    ? 'bg-blue-50 border-blue-300 shadow-md'
-                                    : 'bg-white border-gray-200 hover:border-gray-300'
-                                    }`}>
-                                    <div className="flex items-center justify-between mb-2">
-                                        <Icon className="h-4 w-4 text-muted-foreground" />
-                                        <TooltipProvider>
-                                            <Tooltip>
-                                                <TooltipTrigger asChild>
-                                                    <Button
-                                                        variant="ghost"
-                                                        size="sm"
-                                                        onClick={() => toggleVariable(key)}
-                                                        className="h-6 w-6 p-0"
-                                                    >
-                                                        {isLocked ? (
-                                                            <Target className="h-3 w-3 text-blue-600" />
-                                                        ) : (
-                                                            <Calculator className="h-3 w-3 text-gray-400" />
+                                            const Icon = variable.icon
+                                            const isLocked = variable.locked || group.isOutput
+
+                                            return (
+                                                <div key={key} className={`p-3 border rounded-lg transition-all ${isLocked
+                                                    ? 'bg-blue-50 border-blue-200 shadow-sm'
+                                                    : 'bg-white/50 border-gray-200 hover:border-gray-300'
+                                                    }`}>
+                                                    <div className="flex items-center justify-between mb-2">
+                                                        <div className="flex items-center gap-2">
+                                                            <Icon className="h-4 w-4 text-muted-foreground" />
+                                                            <Label className="text-sm font-medium">{variable.label}</Label>
+                                                        </div>
+                                                        {!group.isOutput && (
+                                                            <TooltipProvider>
+                                                                <Tooltip>
+                                                                    <TooltipTrigger asChild>
+                                                                        <Button
+                                                                            variant="ghost"
+                                                                            size="sm"
+                                                                            onClick={() => toggleVariable(key)}
+                                                                            className="h-6 w-6 p-0"
+                                                                        >
+                                                                            {isLocked ? (
+                                                                                <Target className="h-4 w-4 text-blue-600" />
+                                                                            ) : (
+                                                                                <Calculator className="h-4 w-4 text-gray-400 hover:text-gray-600" />
+                                                                            )}
+                                                                        </Button>
+                                                                    </TooltipTrigger>
+                                                                    <TooltipContent>
+                                                                        <p>Click to {isLocked ? 'stop solving for' : 'solve for'} this variable</p>
+                                                                    </TooltipContent>
+                                                                </Tooltip>
+                                                            </TooltipProvider>
                                                         )}
-                                                    </Button>
-                                                </TooltipTrigger>
-                                                <TooltipContent>
-                                                    <p>Click to {isLocked ? 'stop solving for' : 'solve for'} this variable</p>
-                                                </TooltipContent>
-                                            </Tooltip>
-                                        </TooltipProvider>
-                                    </div>
+                                                    </div>
 
-                                    <div className="space-y-2">
-                                        <Label className="text-xs font-medium">{variable.label}</Label>
-                                        <div className="text-xs text-muted-foreground mb-1">
-                                            {variable.description}
-                                        </div>
+                                                    <div className="space-y-1.5">
+                                                        <div className="text-xs text-muted-foreground pl-1">
+                                                            {variable.description}
+                                                        </div>
 
-                                        {isLocked ? (
-                                            <div className="bg-blue-100 p-2 rounded text-center">
-                                                <div className="text-sm font-bold text-blue-800">
-                                                    🎯 Solving for this
+                                                        {isLocked ? (
+                                                            <div className="bg-blue-100 p-3 rounded-md text-center">
+                                                                <div className="text-2xl font-bold text-blue-800 tracking-tight">
+                                                                    {formatValue(variable.value, variable.format)}
+                                                                </div>
+                                                            </div>
+                                                        ) : (
+                                                            <Input
+                                                                type="number"
+                                                                value={getInputValue(variable.value, variable.format)}
+                                                                onChange={(e) => {
+                                                                    const val = variable.format === 'percent'
+                                                                        ? parseFloat(e.target.value) / 100
+                                                                        : parseFloat(e.target.value)
+                                                                    updateVariable(key, val)
+                                                                }}
+                                                                className="text-base"
+                                                                step={
+                                                                    variable.format === 'percent' ? '0.01' :
+                                                                        variable.format === 'months' ? '1' :
+                                                                            variable.format === 'years' ? '1' : '1000'
+                                                                }
+                                                            />
+                                                        )}
+
+                                                        {!isLocked && getContextualInfo(key, variable.value) && (
+                                                            <div className="flex justify-between items-center text-xs pt-1 px-1">
+                                                                {getContextualInfo(key, variable.value)}
+                                                            </div>
+                                                        )}
+                                                    </div>
                                                 </div>
-                                                <div className="text-xs text-blue-600 mt-1">
-                                                    See scenarios below
-                                                </div>
-                                            </div>
-                                        ) : (
-                                            <Input
-                                                type="number"
-                                                value={getInputValue(variable.value, variable.format)}
-                                                onChange={(e) => {
-                                                    const val = variable.format === 'percent'
-                                                        ? parseFloat(e.target.value) / 100
-                                                        : parseFloat(e.target.value)
-                                                    updateVariable(key, val)
-                                                }}
-                                                className="text-sm"
-                                                step={variable.format === 'percent' ? '0.01' : '1000'}
-                                            />
-                                        )}
-
-                                        {/* Helper text in a single line with left/right alignment */}
-                                        {!isLocked && getContextualInfo(key, variable.value) && (
-                                            <div className="flex justify-between items-center text-xs">
-                                                {getContextualInfo(key, variable.value)}
-                                            </div>
-                                        )}
+                                            )
+                                        })}
                                     </div>
-                                </div>
-                            )
-                        })}
-                    </div>
+                                </AccordionContent>
+                            </AccordionItem>
+                        ))}
+                    </Accordion>
                 </CardContent>
             </Card>
 
@@ -637,23 +747,23 @@ export default function DynamicCalculator() {
                     <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                         <div className="text-center p-3 bg-muted/50 rounded-lg">
                             <div className="text-sm text-muted-foreground">Monthly Income</div>
-                            <div className="text-lg font-bold">{formatValue(results.gmi, 'currency')}</div>
+                            <div className="text-lg font-bold">{formatValue(derivedResults.gmi, 'currency')}</div>
                         </div>
 
                         <div className="text-center p-3 bg-muted/50 rounded-lg">
                             <div className="text-sm text-muted-foreground">Housing DTI</div>
-                            <div className="text-lg font-bold">{formatValue(results.front_end, 'percent')}</div>
+                            <div className="text-lg font-bold">{formatValue(derivedResults.front_end, 'percent')}</div>
                             <div className="text-xs text-muted-foreground">
-                                {results.front_end <= thresholds.conservative.front_end ? '✓ Conservative' :
-                                    results.front_end <= thresholds.moderate.front_end ? '✓ Moderate' :
-                                        results.front_end <= thresholds.aggressive.front_end ? '⚠ Aggressive' : '✗ Too High'}
+                                {derivedResults.front_end <= thresholds.conservative.front_end ? '✓ Conservative' :
+                                    derivedResults.front_end <= thresholds.moderate.front_end ? '✓ Moderate' :
+                                        derivedResults.front_end <= thresholds.aggressive.front_end ? '⚠ Aggressive' : '✗ Too High'}
                             </div>
                         </div>
 
                         <div className="text-center p-3 bg-muted/50 rounded-lg">
                             <div className="text-sm text-muted-foreground">Cash Remaining</div>
-                            <div className={`text-lg font-bold ${results.cash_remaining >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                                {formatValue(results.cash_remaining, 'currency')}
+                            <div className={`text-lg font-bold ${derivedResults.cash_remaining >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                                {formatValue(derivedResults.cash_remaining, 'currency')}
                             </div>
                             <div className="text-xs text-muted-foreground">
                                 After purchase
@@ -662,11 +772,11 @@ export default function DynamicCalculator() {
 
                         <div className="text-center p-3 bg-muted/50 rounded-lg">
                             <div className="text-sm text-muted-foreground">Net Worth in Home</div>
-                            <div className="text-lg font-bold">{formatValue(results.equity_pct_of_nw, 'percent')}</div>
+                            <div className="text-lg font-bold">{formatValue(derivedResults.equity_pct_of_nw, 'percent')}</div>
                             <div className="text-xs text-muted-foreground">
-                                {results.equity_pct_of_nw <= thresholds.conservative.net_worth ? 'Conservative' :
-                                    results.equity_pct_of_nw <= thresholds.moderate.net_worth ? 'Moderate' :
-                                        results.equity_pct_of_nw <= thresholds.aggressive.net_worth ? 'Aggressive' : 'High Risk'}
+                                {derivedResults.equity_pct_of_nw <= thresholds.conservative.net_worth ? 'Conservative' :
+                                    derivedResults.equity_pct_of_nw <= thresholds.moderate.net_worth ? 'Moderate' :
+                                        derivedResults.equity_pct_of_nw <= thresholds.aggressive.net_worth ? 'Aggressive' : 'High Risk'}
                             </div>
                         </div>
                     </div>
