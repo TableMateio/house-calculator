@@ -29,6 +29,7 @@ import {
 } from "lucide-react"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion"
+import TimeHorizonProjections from "./time-horizon-projections"
 
 const variableGroups = [
     {
@@ -93,6 +94,7 @@ export default function DynamicCalculator() {
     const [isLoaded, setIsLoaded] = useState(false);
     const [scenarios, setScenarios] = useState([]);
     const [dpMode, setDpMode] = useState<'percent' | 'amount'>("percent");
+    const [selectedScenario, setSelectedScenario] = useState(null);
 
     // Load state from localStorage on initial client-side render
     useEffect(() => {
@@ -249,10 +251,12 @@ export default function DynamicCalculator() {
                 const downPayment = maxPrice * variables.dp_pct.value
                 const loanAmount = maxPrice - downPayment
                 return {
+                    id: `h_price_${scenario}`,
                     name: scenario,
                     value: maxPrice,
                     status: getScenarioStatus(maxPrice, scenario),
                     actionText: `House up to ${formatCurrency(maxPrice)}`,
+                    homePrice: maxPrice,
                     downPayment,
                     loanAmount,
                 }
@@ -262,10 +266,12 @@ export default function DynamicCalculator() {
             const newScenarios = ['conservative', 'moderate', 'aggressive'].map(scenario => {
                 const maxPayment = calculateMaxPayment(scenario)
                 return {
+                    id: `piti_${scenario}`,
                     name: scenario,
                     value: maxPayment,
                     status: getScenarioStatus(null, scenario, maxPayment),
-                    actionText: `Payment up to ${formatCurrency(maxPayment)}`
+                    actionText: `Payment up to ${formatCurrency(maxPayment)}`,
+                    monthlyPayment: maxPayment
                 }
             })
             setScenarios(newScenarios)
@@ -274,11 +280,17 @@ export default function DynamicCalculator() {
             const newScenarios = targetAmounts.map((amount, idx) => {
                 const scenario = ['conservative', 'moderate', 'aggressive'][idx]
                 const maxPrice = calculateMaxPriceForCashTarget(amount)
+                const downPayment = maxPrice * variables.dp_pct.value
+                const loanAmount = maxPrice - downPayment
                 return {
+                    id: `cash_${scenario}`,
                     name: scenario,
                     value: amount,
                     status: getScenarioStatus(maxPrice, scenario),
-                    actionText: `Keep ${formatCurrency(amount)} cash buffer`
+                    actionText: `Keep ${formatCurrency(amount)} cash buffer`,
+                    homePrice: maxPrice,
+                    downPayment,
+                    loanAmount
                 }
             })
             setScenarios(newScenarios)
@@ -320,6 +332,7 @@ export default function DynamicCalculator() {
                 // If not solvable within limits, mark scenario invalid
                 if (dpSolution === null) {
                     return {
+                        id: `dp_pct_${scenarioKey}_invalid`,
                         name: scenarioKey,
                         value: null,
                         status: {
@@ -351,10 +364,12 @@ export default function DynamicCalculator() {
                 const loanAmount = variables.h_price.value - downPaymentCash;
 
                 return {
+                    id: `dp_pct_${scenarioKey}`,
                     name: scenarioKey,
                     value: dpSolution,
                     status,
                     actionText: `${formatCurrency(downPaymentCash)} cash down`,
+                    homePrice: variables.h_price.value,
                     downPayment: downPaymentCash,
                     loanAmount: loanAmount,
                 };
@@ -368,10 +383,12 @@ export default function DynamicCalculator() {
                 const loanAmount = maxPrice * (1 - variables.dp_pct.value)
                 const downPayment = maxPrice - loanAmount
                 return {
+                    id: `loan_amt_${scenario}`,
                     name: scenario,
                     value: loanAmount,
                     status: getScenarioStatus(maxPrice, scenario),
                     actionText: `Loan up to ${formatCurrency(loanAmount)}`,
+                    homePrice: maxPrice,
                     downPayment,
                     loanAmount,
                 }
@@ -420,6 +437,7 @@ export default function DynamicCalculator() {
                 const status = getScenarioStatus(null, scenarioKey) // status based on current but we'll override colors later in card
 
                 return {
+                    id: `s_inc_${scenarioKey}`,
                     name: scenarioKey,
                     value: requiredIncome,
                     status,
@@ -1091,6 +1109,17 @@ export default function DynamicCalculator() {
                     </div>
                 </CardContent>
             </Card>
+
+            {/* Time Horizon Projections */}
+            <TimeHorizonProjections
+                variables={variables}
+                derivedResults={derivedResults}
+                scenarios={scenarios}
+                selectedScenario={selectedScenario}
+                onScenarioSelect={setSelectedScenario}
+                formatCurrency={formatCurrency}
+                formatPercent={formatPercent}
+            />
         </div>
     )
 } 
