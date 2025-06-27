@@ -33,7 +33,7 @@ import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/
 const variableGroups = [
     {
         name: "Purchase",
-        keys: ["h_price", "dp_pct"]
+        keys: ["h_price", "dp_pct", "loan_amt"]
     },
     {
         name: "Loan & Rates",
@@ -85,12 +85,14 @@ const defaultVariables = {
     car_pmt: { value: 0, locked: false, label: "Car Loan Payment", icon: DollarSign, format: "currency", description: "Monthly car loan payment" },
     margin_pmt: { value: 0, locked: false, label: "Margin/HELOC Payment", icon: DollarSign, format: "currency", description: "Monthly interest or required payment on margin or HELOC" },
     other_debt: { value: 0, locked: false, label: "Other Monthly Debt", icon: DollarSign, format: "currency", description: "CC minimums, student loans, etc." },
+    loan_amt: { value: 750000 * (1 - 0.2), locked: false, label: "Loan Amount", icon: DollarSign, format: "currency", description: "Desired mortgage principal" },
 };
 
 export default function DynamicCalculator() {
     const [variables, setVariables] = useState(defaultVariables);
     const [isLoaded, setIsLoaded] = useState(false);
     const [scenarios, setScenarios] = useState([]);
+    const [dpMode, setDpMode] = useState<'percent' | 'amount'>("percent");
 
     // Load state from localStorage on initial client-side render
     useEffect(() => {
@@ -244,11 +246,15 @@ export default function DynamicCalculator() {
         if (lockedVarKey === 'h_price') {
             const newScenarios = ['conservative', 'moderate', 'aggressive'].map(scenario => {
                 const maxPrice = calculateMaxPrice(scenario)
+                const downPayment = maxPrice * variables.dp_pct.value
+                const loanAmount = maxPrice - downPayment
                 return {
                     name: scenario,
                     value: maxPrice,
                     status: getScenarioStatus(maxPrice, scenario),
-                    actionText: `House up to ${formatCurrency(maxPrice)}`
+                    actionText: `House up to ${formatCurrency(maxPrice)}`,
+                    downPayment,
+                    loanAmount,
                 }
             })
             setScenarios(newScenarios)
@@ -355,6 +361,72 @@ export default function DynamicCalculator() {
             }).filter(Boolean);
 
             setScenarios(computedScenarios)
+        } else if (lockedVarKey === 'loan_amt') {
+            const scenarioOrder = ['conservative', 'moderate', 'aggressive']
+            const newScenarios = scenarioOrder.map(scenario => {
+                const maxPrice = calculateMaxPrice(scenario)
+                const loanAmount = maxPrice * (1 - variables.dp_pct.value)
+                const downPayment = maxPrice - loanAmount
+                return {
+                    name: scenario,
+                    value: loanAmount,
+                    status: getScenarioStatus(maxPrice, scenario),
+                    actionText: `Loan up to ${formatCurrency(loanAmount)}`,
+                    downPayment,
+                    loanAmount,
+                }
+            })
+            setScenarios(newScenarios)
+        } else if (lockedVarKey === 's_inc') {
+            // iterate to find minimal Scott income needed for each scenario
+            const scenarioOrder = ['conservative', 'moderate', 'aggressive']
+            const newScenarios = scenarioOrder.map(scenarioKey => {
+                const targetFront = thresholds[scenarioKey].front_end
+                const targetBack = thresholds[scenarioKey].back_end
+
+                // binary search Scott income
+                let low = 0
+                let high = 1000000 // 1M upper cap
+                let best = high
+
+                for (let i = 0; i < 25; i++) {
+                    const mid = (low + high) / 2
+                    const gmi = (variables.n_inc.value + mid) / 12
+
+                    // recalc PITI with current variables
+                    const loan = variables.h_price.value * (1 - variables.dp_pct.value)
+                    const r = variables.i_yr.value / 12
+                    const n = variables.t_yrs.value * 12
+                    const pi = (loan * r * Math.pow(1 + r, n)) / (Math.pow(1 + r, n) - 1)
+                    const tax = variables.h_price.value * variables.pt_rate.value / 12
+                    const ins = variables.h_price.value * variables.hi_rate.value / 12
+                    const pmi = variables.dp_pct.value < 0.2 ? (loan * parameters.pmi_rate) / 12 : 0
+                    const piti = pi + tax + ins + pmi + variables.upkeep_costs.value
+
+                    const otherDebt = variables.car_pmt.value + variables.margin_pmt.value + variables.other_debt.value
+                    const front = gmi > 0 ? piti / gmi : 1
+                    const back = gmi > 0 ? (piti + otherDebt) / gmi : 1
+
+                    if (front <= targetFront && back <= targetBack) {
+                        best = mid
+                        high = mid
+                    } else {
+                        low = mid
+                    }
+                }
+
+                const requiredIncome = Math.ceil(best / 1000) * 1000 // round to nearest 1k
+
+                const status = getScenarioStatus(null, scenarioKey) // status based on current but we'll override colors later in card
+
+                return {
+                    name: scenarioKey,
+                    value: requiredIncome,
+                    status,
+                    actionText: `Scott needs $${requiredIncome.toLocaleString()}/yr`,
+                }
+            })
+            setScenarios(newScenarios)
         } else {
             setScenarios([])
         }
@@ -502,10 +574,23 @@ export default function DynamicCalculator() {
     }
 
     const updateVariable = (key, value) => {
-        setVariables(prev => ({
-            ...prev,
-            [key]: { ...prev[key], value: parseFloat(value) || 0 }
-        }))
+        setVariables(prev => {
+            const valNum = parseFloat(value) || 0
+
+            let newVars = { ...prev, [key]: { ...prev[key], value: valNum } }
+
+            if (key === 'dp_pct') {
+                // keep loan_amt in sync
+                newVars.loan_amt = { ...newVars.loan_amt, value: newVars.h_price.value * (1 - valNum) }
+            } else if (key === 'h_price') {
+                newVars.loan_amt = { ...newVars.loan_amt, value: valNum * (1 - newVars.dp_pct.value) }
+            } else if (key === 'loan_amt') {
+                const newDp = newVars.h_price.value > 0 ? 1 - valNum / newVars.h_price.value : 0
+                newVars.dp_pct = { ...newVars.dp_pct, value: newDp }
+            }
+
+            return newVars
+        })
     }
 
     const applyScenario = (scenario) => {
@@ -757,6 +842,7 @@ export default function DynamicCalculator() {
 
                                             const Icon = variable.icon
                                             const isLocked = variable.locked
+                                            const isDownPayment = key === 'dp_pct'
 
                                             return (
                                                 <div key={key} className={`p-3 border rounded-lg transition-all ${isLocked
@@ -766,7 +852,22 @@ export default function DynamicCalculator() {
                                                     <div className="flex items-center justify-between mb-2">
                                                         <div className="flex items-center gap-2">
                                                             <Icon className="h-4 w-4 text-muted-foreground" />
-                                                            <Label className="text-sm font-medium">{variable.label}</Label>
+                                                            <Label className="text-sm font-medium">
+                                                                {variable.label}
+                                                                {isDownPayment && (
+                                                                    <Button
+                                                                        variant="ghost"
+                                                                        size="xs"
+                                                                        className="ml-2 h-4 px-1 text-xs border rounded"
+                                                                        onClick={(e) => {
+                                                                            e.stopPropagation();
+                                                                            setDpMode(dpMode === 'percent' ? 'amount' : 'percent')
+                                                                        }}
+                                                                    >
+                                                                        {dpMode === 'percent' ? '%' : '$'}
+                                                                    </Button>
+                                                                )}
+                                                            </Label>
                                                         </div>
                                                         {!group.isOutput && (
                                                             <TooltipProvider>
@@ -807,12 +908,23 @@ export default function DynamicCalculator() {
                                                         ) : (
                                                             <Input
                                                                 type="number"
-                                                                value={getInputValue(variable.value, variable.format)}
+                                                                value={isDownPayment && dpMode === 'amount' ? (variables.h_price.value * variables.dp_pct.value).toFixed(0) : getInputValue(variable.value, variable.format)}
                                                                 onChange={(e) => {
-                                                                    const val = variable.format === 'percent'
-                                                                        ? parseFloat(e.target.value) / 100
-                                                                        : parseFloat(e.target.value)
-                                                                    updateVariable(key, val)
+                                                                    let valNum
+                                                                    if (isDownPayment) {
+                                                                        if (dpMode === 'percent') {
+                                                                            valNum = parseFloat(e.target.value) / 100
+                                                                        } else {
+                                                                            const amt = parseFloat(e.target.value)
+                                                                            valNum = variables.h_price.value > 0 ? amt / variables.h_price.value : 0
+                                                                        }
+                                                                        updateVariable('dp_pct', valNum)
+                                                                    } else {
+                                                                        const val = variable.format === 'percent'
+                                                                            ? parseFloat(e.target.value) / 100
+                                                                            : parseFloat(e.target.value)
+                                                                        updateVariable(key, val)
+                                                                    }
                                                                 }}
                                                                 className="text-base"
                                                                 step={
